@@ -71,6 +71,16 @@ public:
      *  @internal
      */
     void fill(struct _zend_arg_info *info) const;
+    
+    /**
+     *  Is this a required argument?
+     *  @return bool
+     *  @internal
+     */
+    bool required() const
+    {
+        return _required;
+    }
 
 private:
     /**
@@ -85,6 +95,12 @@ private:
      */
     bool _required;
 };
+
+/**
+ *  A list of arguments can be supplied to methods
+ *  @type   Arguments
+ */
+using Arguments = std::initializer_list<Argument>;
     
 /**
  *  End of namespace

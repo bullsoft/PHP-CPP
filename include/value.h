@@ -31,6 +31,8 @@ namespace Php {
 /**
  *  Forward definitions
  */
+class Base;
+class ValueIterator;
 template <class Type> class HashMember;
 
 /**
@@ -57,6 +59,51 @@ public:
     Value(const std::string &value);
     Value(const char *value, int size = -1);
     Value(double value);
+
+    /**
+     *  Construct to a specific type
+     *  @param  value
+     */
+    Value(Type type) : Value() { setType(type); }
+    
+    /**
+     *  Constructors from a vector (this will create an array)
+     *  @param  value
+     */
+    template <typename T>
+    Value(const std::vector<T> &input) : Value(Type::Array)
+    {
+        // index
+        int i = 0;
+        
+        // set all elements
+        for (auto &elem : input) setRaw(i++, elem);
+    }
+
+    /**
+     *  Constructor from an initializer list
+     *  @param  value
+     */
+    template <typename T>
+    Value(const std::initializer_list<T> &value) : Value(Type::Array) 
+    {
+        // index
+        int i = 0;
+
+        // set all elements
+        for (auto &elem : value) setRaw(i++, elem);
+    }
+    
+    /**
+     *  Constructor from a map (this will create an associative array)
+     *  @param  value
+     */
+    template <typename T>
+    Value(const std::map<std::string,T> &value)
+    {
+        // set all elements
+        for (auto &iter : value) setRaw(iter.first.c_str(), iter.first.size(), iter.second);
+    }
     
     /**
      *  Wrap object around zval
@@ -64,6 +111,12 @@ public:
      *  @param  ref         Force this to be a reference
      */
     Value(struct _zval_struct *zval, bool ref = false);
+    
+    /**
+     *  Wrap around an object implemented by us
+     *  @param  object      Object to be wrapped
+     */
+    Value(Base *base);
     
     /**
      *  Copy constructor
@@ -94,6 +147,7 @@ public:
      *  @param  value
      *  @return Value
      */
+    Value &operator=(std::nullptr_t value);
     Value &operator=(const Value &value);
     Value &operator=(int16_t value);
     Value &operator=(int32_t value);
@@ -103,7 +157,7 @@ public:
     Value &operator=(const std::string &value);
     Value &operator=(const char *value);
     Value &operator=(double value);
-    
+
     /**
      *  Add a value to the object
      *  @param  value
@@ -255,6 +309,28 @@ public:
     Value operator%(double value);
     
     /**
+     *  Comparison operators for hardcoded strings
+     *  @param  value
+     */
+    bool operator==(const char *value) const { return ::strcmp(rawValue(), value) == 0; }
+    bool operator!=(const char *value) const { return ::strcmp(rawValue(), value) != 0; }
+    bool operator<=(const char *value) const { return ::strcmp(rawValue(), value) <= 0; }
+    bool operator>=(const char *value) const { return ::strcmp(rawValue(), value) >= 0; }
+    bool operator< (const char *value) const { return ::strcmp(rawValue(), value) <  0; }
+    bool operator> (const char *value) const { return ::strcmp(rawValue(), value) >  0; }
+
+    /**
+     *  Comparison operators
+     *  @param  value
+     */
+    template <typename T> bool operator==(const T &value) const { return (T)*this == value; }
+    template <typename T> bool operator!=(const T &value) const { return (T)*this != value; }
+    template <typename T> bool operator<=(const T &value) const { return (T)*this <= value; }
+    template <typename T> bool operator>=(const T &value) const { return (T)*this >= value; }
+    template <typename T> bool operator< (const T &value) const { return (T)*this <  value; }
+    template <typename T> bool operator> (const T &value) const { return (T)*this >  value; }
+
+    /**
      *  The type of object
      *  @return Type
      */
@@ -283,34 +359,62 @@ public:
      *  Check if the value is of a certain type
      *  @return bool
      */
-    bool isNull()       const { return type() == nullType; }
-    bool isNumeric()    const { return type() == numericType; }
-    bool isBool()       const { return type() == boolType; }
-    bool isString()     const { return type() == stringType; }
-    bool isFloat()      const { return type() == floatType; }
-    bool isObject()     const { return type() == objectType; }
-    bool isArray()      const { return type() == arrayType; }
+    bool isNull()       const { return type() == Type::Null; }
+    bool isNumeric()    const { return type() == Type::Numeric; }
+    bool isBool()       const { return type() == Type::Bool; }
+    bool isString()     const { return type() == Type::String; }
+    bool isFloat()      const { return type() == Type::Float; }
+    bool isObject()     const { return type() == Type::Object; }
+    bool isArray()      const { return type() == Type::Array; }
     bool isCallable()   const;
+
+    /**
+     *  Get access to the raw buffer - you can use this for direct reading and
+     *  writing to and from the buffer. Note that this only works for string
+     *  variables - other variables return nullptr.
+     * 
+     *  If you are going to write to the buffer, make sure that you first call
+     *  the resize() method to ensure that the buffer is big enough.
+     *  
+     *  @return char *
+     */
+    char *buffer() const;
+    
+    /**
+     *  Resize buffer space. If you want to write directly to the buffer (which 
+     *  is returned by the buffer() method), you should first reserve enough 
+     *  space in it. This can be done with this resize() method. This will also 
+     *  turn the Value object into a string (if it was not already a string). 
+     *  The writable buffer is returned.
+     * 
+     *  @param  size
+     *  @return char* 
+     */
+    char *reserve(size_t size);
+    
+    /**
+     *  Get access to the raw buffer for read operationrs.
+     *  @return const char *
+     */
+    const char *rawValue() const;
     
     /**
      *  Retrieve the value as number
-     *  @return long
+     *
+     *  We force this to be a int64_t because we assume that most
+     *  servers run 64 bits nowadays, and because we use int32_t, int64_t
+     *  almost everywhere, instead of 'long' and on OSX neither of
+     *  these intxx_t types is defined as 'long'...
+     *
+     *  @return int64_t
      */
-    long numericValue() const;
+    int64_t numericValue() const;
     
     /**
      *  Retrieve the value as boolean
      *  @return bool
      */
     bool boolValue() const;
-    
-    /**
-     *  Retrieve the raw string value
-     *  Warning: Only use this for NULL terminated strings, or use it in combination 
-     *  with the string size to prevent that you access data outside the buffer
-     *  @return const char *
-     */
-    const char *rawValue() const;
     
     /**
      *  Retrieve the value as a string
@@ -323,6 +427,91 @@ public:
      *  @return double
      */
     double floatValue() const;
+    
+    /**
+     *  Convert the object to a vector
+     * 
+     *  This only works for regular arrays that are indexed by a number, start
+     *  with position 0 and have no empty spaces.
+     *  
+     *  @return std::vector
+     */
+    template <typename T>
+    std::vector<T> vectorValue() const
+    {
+        
+        
+        // only works for arrays, other types return an empty vector
+        if (!isArray()) return std::vector<T>();
+
+        // allocate a result
+        std::vector<T> result;
+        
+        // reserve enough space
+        size_t count = size();
+        result.reserve(count);
+        
+        // and fill the result vector
+        for (size_t i = 0; i<count; i++) 
+        {
+            // check if the index exists
+            if (!contains(i)) continue;
+            
+            // get the value object
+            Value value(get(i));
+            
+            // add it to the vector
+            result.push_back(value);
+        }
+        
+        // done
+        return result;
+    }
+    
+    /**
+     *  Convert the object to a map with string index and Php::Value value
+     *  @return std::map
+     */
+    std::map<std::string,Php::Value> mapValue() const;
+    
+    /**
+     *  Convert the object to a map with string index and a specific type as value
+     *  @return std::map
+     */
+    template <typename T>
+    std::map<std::string,T> mapValue() const
+    {
+        // must be an array or an object, otherwise the map is empty
+        if (!isArray() && !isObject()) return std::map<std::string,T>();
+        
+        // get the original map value
+        std::map<std::string,Php::Value> map(mapValue());
+        
+        // result variable
+        std::map<std::string,T> result;
+        
+        // done
+        return result;
+    }
+    
+    /**
+     *  Define the iterator type
+     */
+    typedef ValueIterator iterator;
+    
+    /**
+     *  Return an iterator for iterating over the values
+     *  This is only meaningful for Value objects that hold an array or an object
+     *  @return iterator
+     */
+    iterator begin() const;
+    
+    /**
+     *  Return an iterator for iterating over the values
+     *  This is only meaningful for Value objects that hold an array or an object
+     *  @return iterator
+     */
+    iterator end() const;
     
     /**
      *  The number of members in case of an array or object
@@ -372,6 +561,17 @@ public:
      *  @return bool
      */
     bool contains(const char *key, int size) const;
+
+    /**
+     *  Is a certain key set in the array
+     *  @param  key
+     *  @param  size
+     *  @return bool
+     */
+    bool contains(const char *key) const
+    {
+        return contains(key, strlen(key));
+    }
     
     /**
      *  Cast to a number
@@ -434,6 +634,35 @@ public:
     operator double () const
     {
         return floatValue();
+    }
+
+    /**
+     *  Convert the object to a vector
+     *  @return std::vector
+     */
+    template <typename T>
+    operator std::vector<T>() const
+    {
+        return vectorValue<T>();
+    }
+
+    /**
+     *  Convert the object to a map with string index and Php::Value value
+     *  @return std::map
+     */
+    operator std::map<std::string,Php::Value> () const
+    {
+        return mapValue();
+    }
+
+    /**
+     *  Convert the object to a map with string index and Php::Value value
+     *  @return std::map
+     */
+    template <typename T>
+    operator std::map<std::string,T> () const
+    {
+        return mapValue<T>();
     }
     
     /**
@@ -514,6 +743,17 @@ public:
     
     /**
      *  Array access operator
+     *  This can be used for accessing arrays
+     *  @param  index
+     *  @return Value
+     */
+    Value operator[](int index) const
+    {
+        return get(index);
+    }
+    
+    /**
+     *  Array access operator
      *  This can be used for accessing associative arrays
      *  @param  key
      *  @return Member
@@ -524,28 +764,97 @@ public:
      *  Array access operator
      *  This can be used for accessing associative arrays
      *  @param  key
+     *  @return Value
+     */
+    Value operator[](const std::string &key) const
+    {
+        return get(key);
+    }
+
+    /**
+     *  Array access operator
+     *  This can be used for accessing associative arrays
+     *  @param  key
      *  @return HashMember
      */
     HashMember<std::string> operator[](const char *key);
 
     /**
+     *  Array access operator
+     *  This can be used for accessing associative arrays
+     *  @param  key
+     *  @return Value
+     */
+    Value operator[](const char *key) const
+    {
+        return get(key);
+    }
+
+    /**
      *  Call the function in PHP
      *  We have ten variants of this function, depending on the number of parameters
      *  This call operator is only useful when the variable represents a callable
+     *  @return Value
+     */
+    Value operator()() const;
+    Value operator()(Value p0) const;
+    Value operator()(Value p0, Value p1) const;
+    Value operator()(Value p0, Value p1, Value p2) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8) const;
+    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8, Value p9) const;
+
+    /**
+     *  Call a method
+     *  We have ten variants of this function, depending on the number of parameters
+     *  This is only applicable when the Value contains PHP object
      *  @param  name        Name of the function
      *  @return Value
      */
-    Value operator()();
-    Value operator()(Value p0);
-    Value operator()(Value p0, Value p1);
-    Value operator()(Value p0, Value p1, Value p2);
-    Value operator()(Value p0, Value p1, Value p2, Value p3);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8);
-    Value operator()(Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8, Value p9);
+    Value call(const char *name);
+    Value call(const char *name, Value p0);
+    Value call(const char *name, Value p0, Value p1);
+    Value call(const char *name, Value p0, Value p1, Value p2);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4, Value p5);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8);
+    Value call(const char *name, Value p0, Value p1, Value p2, Value p3, Value p4, Value p5, Value p6, Value p7, Value p8, Value p9);
+
+    /**
+     *  Retrieve the original implementation
+     * 
+     *  This only works for classes that were implemented using PHP-CPP,
+     *  it returns nullptr for all other classes
+     * 
+     *  @return Base*
+     */
+    Base *implementation() const;
+
+    /**
+     *  Retrieve the original implementation
+     * 
+     *  This only works for classes that were implemented using PHP-CPP,
+     *  it returns nullptr for all other classes
+     * 
+     *  @return mixed
+     */
+    template <typename T>
+    T *implementation() const
+    {
+        // retrieve the implementation
+        Base *base = implementation();
+        if (!base) return nullptr;
+        
+        // try casting it
+        return dynamic_cast<T*>(base);
+    }
 
 private:
     /**
@@ -554,7 +863,22 @@ private:
      *  @param  argv        The parameters
      *  @return Value
      */
-    Value exec(int argc, struct _zval_struct ***params);
+    Value exec(int argc, struct _zval_struct ***params) const;
+
+    /**
+     *  Call method with a number of parameters
+     *  @param  name        Name of method to call
+     *  @param  argc        Number of parameters
+     *  @param  argv        The parameters
+     *  @return Value
+     */
+    Value exec(const char *name, int argc, struct _zval_struct ***params);
+
+    /**
+     *  Refcount - the number of references to the value
+     *  @return int
+     */
+    int refcount();
 
 protected:
     /**
@@ -564,18 +888,61 @@ protected:
     struct _zval_struct *_val;
     
     /**
-     *  Validate the value
-     *  This is a overridable function that is implemented in base classes to
-     *  ensure that a value of certain type stays valid
-     *  @return Value
+     *  Detach the zval
+     * 
+     *  This will unlink the zval internal structure from the Value object,
+     *  so that the destructor will not reduce the number of references and/or
+     *  deallocate the zval structure. This is used for functions that have to
+     *  return a zval pointer, that would otherwise be deallocated the moment
+     *  the function returns.
+     * 
+     *  @return zval
      */
-    virtual Value &validate() { return *this; }
+    struct _zval_struct *detach();
+    
+    /**
+     *  Attach a different zval
+     * 
+     *  This will first detach the current zval, and link the Value object to 
+     *  a different zval. Versions exist to attach to a zval and to an entire
+     *  hash table
+     * 
+     *  @param  val
+     */
+    void attach(struct _zval_struct *val);
+    void attach(struct _hashtable *hashtable);
+    
+    /**
+     *  Set a certain property without running any checks (you must already know
+     *  for sure that this is an array, and that the index is not yet in use)
+     * 
+     *  @param  index       Index of the property to set
+     *  @param  value       Value to set
+     *  @return Value       The value that was set
+     */
+    const Value &setRaw(int index, const Value &value);
+    
+    /**
+     *  Set a certain property without any checks (you must already know for
+     *  sure that this is either an object or an array, and that the index is
+     *  not yet in use)
+     * 
+     *  @param  key         Key of the property to set
+     *  @param  size        Size of the key
+     *  @param  value       Value to set
+     *  @return Value       The value that was set
+     */
+    const Value &setRaw(const char *key, int size, const Value &value);
     
     /**
      *  The Globals and Member classes can access the zval directly
      */
     friend class Globals;
     friend class Member;
+    friend class ClassBase;
+    friend class Iterator;
+    friend class Extension;
+    friend class ValueIterator;
 };
 
 /**
@@ -585,6 +952,24 @@ protected:
  *  @return ostream
  */
 std::ostream &operator<<(std::ostream &stream, const Value &value);
+
+/**
+ *  Custom +=, -=, *=, /=, &= operators, to update integral types with a Php::Value
+ * 
+ *  This code looks complicated, it ensures that the operators are only
+ *  overloaded for integral types (int, bool, etc) - and not for complex types
+ *  (arrays, objects, etc)
+ */
+template <typename X, typename std::enable_if<std::is_integral<X>::value>::type* = nullptr> 
+X &operator+=(X &x, const Php::Value &value) { return x += (X)value; }
+template <typename X, typename std::enable_if<std::is_integral<X>::value>::type* = nullptr> 
+X &operator-=(X &x, const Php::Value &value) { return x -= (X)value; }
+template <typename X, typename std::enable_if<std::is_integral<X>::value>::type* = nullptr> 
+X &operator*=(X &x, const Php::Value &value) { return x *= (X)value; }
+template <typename X, typename std::enable_if<std::is_integral<X>::value>::type* = nullptr> 
+X &operator/=(X &x, const Php::Value &value) { return x /= (X)value; }
+template <typename X, typename std::enable_if<std::is_integral<X>::value>::type* = nullptr> 
+X &operator%=(X &x, const Php::Value &value) { return x %= (X)value; }
 
 /**
  *  End of namespace

@@ -3,7 +3,7 @@
  *  Implementation of Php Exceptions.
  * 
  *  @author Jasper van Eck <jasper.vaneck@copernica.com>
- *  @copyright 2013 Copernica BV
+ *  @copyright 2013, 2014 Copernica BV
  */
 #include <exception>
 
@@ -42,7 +42,7 @@ public:
     /**
      *  Destructor
      */
-    virtual ~Exception()
+    virtual ~Exception() throw()
     {
     }
     
@@ -54,6 +54,16 @@ public:
     {
         return _message;
     }
+
+    /**
+     *  Process the exception
+     * 
+     *  This method is called only from withing the PHP-CPP library,
+     *  and will turn the exception into a PHP exception
+     * 
+     *  @internal
+     */
+    virtual void process();
 };
 
 /**

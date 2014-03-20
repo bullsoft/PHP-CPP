@@ -1,18 +1,18 @@
 /**
  *  Array.h
  *
- *  An array is an extension to the Value class. It extends the Value class
- *  to initialize the variable as an array, instead of a null pointer
+ *  The Array is a wrapper around the value class that ensures that a 
+ *  certain property always is an array
  *
  *  @author Emiel Bruijntjes <emiel.bruijntjes@copernica.com>
- *  @copyright 2013 Copernica BV
+ *  @copyright 2013, 2014 Copernica BV
  */
 
 /**
  *  Set up namespace
  */
 namespace Php {
-    
+
 /**
  *  Class definition
  */
@@ -22,25 +22,47 @@ public:
     /**
      *  Constructor
      */
-    Array() : Value() { setType(arrayType); }
-    
-    /**
-     *  Copy constructor
-     *  @param  array
-     */
-    Array(const Array &array) : Value(array) {}
-    
-    /**
-     *  Move constructor
-     *  @param  array
-     */
-    Array(Array &&that) : Value(std::move(that)) {}
+    Array() : Value(Type::Array) {}
     
     /**
      *  Copy constructor from a value object
      *  @param  value
      */
-    Array(const Value &value) : Value(value) { setType(arrayType); }
+    Array(const Value &value) : Value(value) 
+    {
+        // type must be valid
+        if (value.type() != Type::Array) throw Php::Exception("Assiging a non-array to an array variable");
+    }
+
+    /**
+     *  Move constructor from a value object
+     *  @param  value
+     */
+    Array(Value &&value) : Value(std::move(value))
+    {
+        // type must be valid
+        if (value.type() != Type::Array) throw Php::Exception("Moving a non-array to an array variable");
+    }
+
+    /**
+     *  Constructors from a vector (this will create an array)
+     *  @param  value
+     */
+    template <typename T>
+    Array(const std::vector<T> &input) : Value(input) {}
+    
+    /**
+     *  Constructor from a map (this will create an associative array)
+     *  @param  value
+     */
+    template <typename T>
+    Array(const std::map<std::string,T> &value) : Value(value) {}
+    
+    /**
+     *  Constructor from an initializer list
+     *  @param  value
+     */
+    Array(const std::initializer_list<Value> &value) : Value(value) {}
     
     /**
      *  Destructor
@@ -53,29 +75,54 @@ public:
      */
     virtual Value &setType(Type type) override
     {
-        // only possible for arrays
-        if (type != arrayType) return *this;
+        // throw exception if things are going wrong
+        if (type != Type::Array) throw Php::Exception("Changing type of a fixed array variable");
         
         // call base
-        return Value::setType(type);
+        return Value::setType(Type::Array);
     }
     
-protected:
     /**
-     *  Validate the object
-     *  @return Value
+     *  Assignment operator
+     *  @param  value
+     *  @return Array
      */
-    virtual Value &validate() override
+    Array &operator=(const Value &value)
     {
-        // make sure the value object is an array
-        setType(arrayType);
+        // skip self assignment
+        if (this == &value) return *this;
+        
+        // type must be valid
+        if (value.type() != Type::Array) throw Php::Exception("Assiging a non-array to a fixed array variable");
         
         // call base
-        return Value::validate();
+        Value::operator=(value);
+
+        // done
+        return *this;
     }
     
+    /**
+     *  Move assignment operator
+     *  @param  value
+     *  @return Array
+     */
+    Array &operator=(Value &&value)
+    {
+        // skip self assignment
+        if (this == &value) return *this;
+        
+        // type must be valid
+        if (value.type() != Type::Array) throw Php::Exception("Moving a non-array to a fixed array variable");
+        
+        // call base
+        Value::operator=(std::move(value));
+        
+        // done
+        return *this;
+    }
 };
-    
+
 /**
  *  End of namespace
  */

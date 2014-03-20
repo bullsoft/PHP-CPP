@@ -11,11 +11,8 @@
  *  as module in a webserver) many requests are handled by the same extension
  *  instance.
  * 
- *  This is a template class. You need to pass in the type of an object
- *  that you use for storing request specific state information.
- * 
  *  @author Emiel Bruijntjes <emiel.bruijntjes@copernica.com>
- *  @copyright 2013 Copernica BV
+ *  @copyright 2013, 2014 Copernica BV
  */
 
 /**
@@ -34,35 +31,22 @@ namespace Php {
 class Extension;
 
 /**
- *  Optional callback types for starting and stopping the request
- *  @param  extension
+ *  Signature of a callback
  */
-typedef bool    (*request_callback)(Extension *extension);
-
-/**
- *  A couple of predefined native callback functions that can be registered.
- *  These are functions that optional accept a Request and/or Parameters object,
- *  and that either return void or a Value object. 
- */
-typedef void    (*native_callback_0)();
-typedef void    (*native_callback_1)(Parameters &);
-typedef Value   (*native_callback_2)();
-typedef Value   (*native_callback_3)(Parameters &);
+using Callback = std::function<void()>;
 
 /**
  *  Class definition
  */
-class Extension
+class Extension : public Namespace
 {
 public:
     /**
      *  Constructor that defines a number of functions right away
      *  @param  name        Extension name
      *  @param  version     Extension version string
-     *  @param  callback    Function that is called when request starts
-     *  @param  callback    Function that is called when request ends
      */
-    Extension(const char *name = NULL, const char *version = NULL, request_callback start = NULL, request_callback stop = NULL);
+    Extension(const char *name = NULL, const char *version = NULL);
     
     /**
      *  No copy'ing and no moving
@@ -76,112 +60,65 @@ public:
     virtual ~Extension();
     
     /**
-     *  Initialize the extension.
-     *  
-     *  This method is called after the extension has been loaded, constructed 
-     *  and after the compatibility has been checked, but before the requests 
-     *  are handled. You can override this method to add your own initialization.
+     *  Register a function to be called when the PHP engine is ready
      * 
-     *  The default behavior of this function is to enable all classes that are
-     *  defined in this extension, so that they are also available in PHP.
+     *  The callback will be called after all extensions are loaded, and all 
+     *  functions and classes are available, but before the first pageview/request
+     *  is handled. You can register this callback if you want to be notified
+     *  when the engine is ready, for example to initialize certain things.
      * 
-     *  The method should return true on success, and false on failure (in which
-     *  case the extension will not be used)
-     * 
-     *  @return bool
+     *  @param  callback
      */
-    virtual bool initialize();
-    
-    /**
-     *  Finalize the extension
-     *  
-     *  This method gets called after all requests were handled, and right before 
-     *  the Apache module or CLI script will exit. You can override it to add
-     *  your own cleanup code.
-     * 
-     *  @return bool
-     */
-    virtual bool finalize()
+    void onStartup(const Callback &callback)
     {
-        return true;
+        // copy callback
+        _onStartup = callback;
     }
     
     /**
-     *  Start a request
+     *  Register a function to be called when the PHP engine is going to stop
      * 
-     *  This method is called when the zend engine is about to start a new
-     *  request. Internally, it calls the request() method to instantiate
-     *  a new request object, and after that it initializes the request.
+     *  The callback will be called right before the process is going to stop.
+     *  You can register a function if you want to clean up certain things.
      * 
-     *  @return boolean
+     *  @param  callback
      */
-    virtual bool startRequest()
+    void onShutdown(const Callback &callback)
     {
-        // ok if no callback was set
-        if (!_start) return true;
-        
-        // call the callback function
-        return _start(this);
+        // copy callback
+        _onShutdown = callback;
     }
     
     /**
-     *  End a request
+     *  Register a callback that is called at the beginning of each pageview/request
      * 
-     *  This method is called when the Zend engine is ready with a request.
-     *  Internally, it destructs the request
-     *
-     *  @return boolean
+     *  You can register a callback if you want to initialize certain things
+     *  at the beginning of each request. Remember that the extension can handle
+     *  multiple requests after each other, and you may want to set back certain
+     *  global variables to their initial variables in front of each request
+     * 
+     *  @param  callback
      */
-    virtual bool endRequest()
+    void onRequest(const Callback &callback)
     {
-        // ok if no callback is set
-        if (!_stop) return true;
-        
-        // call callback
-        return _stop(this);
+        // copy callback
+        _onRequest = callback;
     }
     
     /**
-     *  Add a function to the extension
-     *  
-     *  It is only possible to create functions during the initialization of
-     *  the library, before the Extension::module() method is called.
+     *  Register a callback that is called to cleanup things after a pageview/request
      * 
-     *  Note that the function must have been allocated on the HEAP (using
-     *  "new") and that the object will be destructed (using "delete")
-     *  by the extension object (you thus do not have to destruct it
-     *  yourself!) 
+     *  The callback will be called after _each_ request, so that you can clean up
+     *  certain things and make your extension ready to handle the next request.
+     *  This method is called onIdle because the extension is idle in between
+     *  requests.
      * 
-     *  @param  function    The function to add
-     *  @return Function    The added function
+     *  @param  callback
      */
-    Function *add(Function *function);
-    
-    /**
-     *  Add a native function directly to the extension
-     *  @param  name        Name of the function
-     *  @param  function    The function to add
-     *  @param  arguments   Optional argument specification
-     *  @return Function    The added function
-     */
-    Function *add(const char *name, native_callback_0 function, const std::initializer_list<Argument> &arguments = {});
-    Function *add(const char *name, native_callback_1 function, const std::initializer_list<Argument> &arguments = {});
-    Function *add(const char *name, native_callback_2 function, const std::initializer_list<Argument> &arguments = {});
-    Function *add(const char *name, native_callback_3 function, const std::initializer_list<Argument> &arguments = {});
-    
-    /**
-     *  Add a native class to the extension
-     *  @param  name        Name of the class
-     *  @param  type        The class implementation
-     */
-    template<typename T>
-    void add(const char *name, const Class<T> &type)
+    void onIdle(const Callback &callback)
     {
-        // construct info
-        ClassInfo<T> *info = new ClassInfo<T>(name, type);
-        
-        // add class
-        _classes.insert(std::unique_ptr<_ClassInfo>(info));
+        // copy callback
+        _onIdle = callback;
     }
     
     /**
@@ -194,20 +131,16 @@ public:
      */
     _zend_module_entry *module();
     
+    /**
+     *  Cast to a module entry
+     *  @return _zend_module_entry*
+     */
+    operator _zend_module_entry * ()
+    {
+        return module();
+    }
     
 private:
-    /**
-     *  Set of function objects defined in the library
-     *  @var    set
-     */
-    std::set<std::unique_ptr<Function>> _functions;
-
-    /**
-     *  Set of classes defined in the library
-     *  @var    set
-     */
-    std::set<std::unique_ptr<_ClassInfo>> _classes;
-
     /**
      *  The information that is passed to the Zend engine
      * 
@@ -220,17 +153,61 @@ private:
     _zend_module_entry *_entry;
     
     /**
-     *  Callback that is called before each request
-     *  @var request_callback
+     *  Callback that is called after the engine is initialized and before the
+     *  pageviews are going to be handled
+     *  @var    Callback
      */
-    request_callback _start;
+    Callback _onStartup;
     
     /**
-     *  Callback that is called after each request
-     *  @var request_callback
+     *  Callback that is called in front of each request
+     *  @var    Callback
      */
-    request_callback _stop;
+    Callback _onRequest;
     
+    /**
+     *  Callback that is called right after each request
+     *  @var    Callback
+     */
+    Callback _onIdle;
+    
+    /**
+     *  Callback that is called right before the engine is closing down
+     *  @var    Callback
+     */
+    Callback _onShutdown;
+
+    /**
+     *  Function that is called when the extension initializes
+     *  @param  type        Module type
+     *  @param  number      Module number
+     *  @return int         0 on success
+     */
+    static int onStartup(int type, int module_number);
+
+    /**
+     *  Function that is called when the extension is about to be stopped
+     *  @param  type        Module type
+     *  @param  number      Module number
+     *  @return int
+     */
+    static int onShutdown(int type, int module_number);
+    
+        /**
+    *  Function that is called when a request starts
+    *  @param  type        Module type
+    *  @param  number      Module number
+    *  @return int         0 on success
+    */
+    static int onRequest(int type, int module_number);
+
+    /**
+    *  Function that is called when a request is ended
+    *  @param  type        Module type
+    *  @param  number      Module number
+    *  @return int         0 on success
+    */
+    static int onIdle(int type, int module_number);
 };
 
 /**

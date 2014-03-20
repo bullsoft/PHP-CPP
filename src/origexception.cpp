@@ -21,52 +21,19 @@ void cpp_throw_exception_hook(struct _zval_struct *exception)
 namespace Php {
 
 /**
- *  Constructor
- *  @param  zval
- */
-OrigException::OrigException(struct _zval_struct *zval) : 
-    Value(zval), 
-    Exception("OrigException"), 
-    _restored(false)
-{
-    std::cout << "save the exception" << std::endl;
-    
-    // save the exception
-    zend_exception_save();
-}
-
-/**
- *  Copy constructor
- *  @param  exception
- */
-OrigException::OrigException(const OrigException &exception) : 
-    Value(exception), 
-    Exception("OrigException"),
-    _restored(exception._restored) {}
-
-/**
- *  Move constructor
- *  @param  exception
- */
-OrigException::OrigException(OrigException &&exception) : 
-    Value(std::move(exception)), 
-    Exception("OrigException"),
-    _restored(exception._restored) {}
-
-/**
  *  Destructor
  */
-OrigException::~OrigException()
+OrigException::~OrigException() noexcept
 {
     // skip if the exception was restored
     if (_restored) return;
-    zend_throw_exception_hook = NULL;
-    // clean up the exception
+    // clean up the exception, because it was handled in C++ code
     zend_clear_exception();
 }
                                          
 
 /**
+<<<<<<< HEAD
  *  Restore the exception
  *  @internal
  */
@@ -88,6 +55,8 @@ void OrigException::hook()
                                             
                                             
 /**
+=======
+>>>>>>> 6d42a8f99cbe98201a0d52ab276f6929b66cfe4f
  *  End of namespace
  */
 }

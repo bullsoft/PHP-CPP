@@ -81,7 +81,7 @@ static int match_module(_zend_module_entry *entry)
  *  @param  number
  *  @return Extension*
  */
-static Extension *extension(int number)
+static Extension *find(int number)
 {
     // do we already have an extension with this number?
     auto iter = number2extension.find(number);
@@ -104,13 +104,22 @@ static Extension *extension(int number)
  *  @param  number      Module number
  *  @return int         0 on success
  */
-static int extension_startup(INIT_FUNC_ARGS)
+int Extension::onStartup(int type, int module_number)
 {
     // initialize and allocate the "global" variables
     ZEND_INIT_MODULE_GLOBALS(phpcpp, init_globals, NULL); 
     
-    // initialize the extension
-    return BOOL2SUCCESS(extension(module_number)->initialize());
+    // get the extension
+    Extension *extension = find(module_number);
+    
+    // initialize namespace
+    extension->initialize("");
+    
+    // is the callback registered?
+    if (extension->_onStartup) extension->_onStartup();
+
+    // done
+    return BOOL2SUCCESS(true);
 }
 
 /**
@@ -119,10 +128,16 @@ static int extension_startup(INIT_FUNC_ARGS)
  *  @param  number      Module number
  *  @return int
  */
-static int extension_shutdown(SHUTDOWN_FUNC_ARGS)
+int Extension::onShutdown(int type, int module_number)
 {
-    // finalize the extension
-    return BOOL2SUCCESS(extension(module_number)->finalize());
+    // get the extension
+    Extension *extension = find(module_number);
+    
+    // is the callback registered?
+    if (extension->_onShutdown) extension->_onShutdown();
+    
+    // done
+    return BOOL2SUCCESS(true);
 }
 
 /**
@@ -131,10 +146,16 @@ static int extension_shutdown(SHUTDOWN_FUNC_ARGS)
  *  @param  number      Module number
  *  @return int         0 on success
  */
-static int request_startup(INIT_FUNC_ARGS)
+int Extension::onRequest(int type, int module_number)
 {
-    // start the request
-    return extension(module_number)->startRequest();
+    // get the extension
+    Extension *extension = find(module_number);
+    
+    // is the callback registered?
+    if (extension->_onRequest) extension->_onRequest();
+    
+    // done
+    return BOOL2SUCCESS(true);
 }
 
 /**
@@ -143,10 +164,16 @@ static int request_startup(INIT_FUNC_ARGS)
  *  @param  number      Module number
  *  @return int         0 on success
  */
-static int request_shutdown(INIT_FUNC_ARGS)
+int Extension::onIdle(int type, int module_number)
 {
-    // end the request
-    return BOOL2SUCCESS(extension(module_number)->endRequest());
+    // get the extension
+    Extension *extension = find(module_number);
+    
+    // is the callback registered?
+    if (extension->_onIdle) extension->_onIdle();
+    
+    // done
+    return BOOL2SUCCESS(true);
 }
 
 /**
@@ -156,7 +183,7 @@ static int request_shutdown(INIT_FUNC_ARGS)
  *  @param  start       Request start callback
  *  @param  stop        Request stop callback
  */
-Extension::Extension(const char *name, const char *version, request_callback start, request_callback stop) : _start(start), _stop(stop)
+Extension::Extension(const char *name, const char *version) : Namespace("")
 {
     // keep extension pointer based on the name
     name2extension[name] = this;
@@ -176,10 +203,10 @@ Extension::Extension(const char *name, const char *version, request_callback sta
     _entry->deps = NULL;                                    // dependencies on other modules
     _entry->name = name;                                    // extension name
     _entry->functions = NULL;                               // functions supported by this module (none for now)
-    _entry->module_startup_func = extension_startup;        // startup function for the whole extension
-    _entry->module_shutdown_func = extension_shutdown;      // shutdown function for the whole extension
-    _entry->request_startup_func = request_startup;         // startup function per request
-    _entry->request_shutdown_func = request_shutdown;       // shutdown function per request
+    _entry->module_startup_func = &Extension::onStartup;    // startup function for the whole extension
+    _entry->module_shutdown_func = &Extension::onShutdown;  // shutdown function for the whole extension
+    _entry->request_startup_func = &Extension::onRequest;   // startup function per request
+    _entry->request_shutdown_func = &Extension::onIdle;     // shutdown function per request
     _entry->info_func = NULL;                               // information for retrieving info
     _entry->version = version;                              // version string
     _entry->globals_size = 0;                               // size of the global variables
@@ -191,7 +218,7 @@ Extension::Extension(const char *name, const char *version, request_callback sta
     _entry->type = 0;                                       // temporary or persistent module, will be filled by Zend engine
     _entry->handle = NULL;                                  // dlopen() handle, will be filled by Zend engine
     _entry->module_number = 0;                              // module number will be filled in by Zend engine
-    _entry->build_id = ZEND_MODULE_BUILD_ID;                // check if extension and zend engine are compatible
+    _entry->build_id = (char *)ZEND_MODULE_BUILD_ID;        // check if extension and zend engine are compatible
 
     // things that only need to be initialized
 #ifdef ZTS
@@ -215,31 +242,6 @@ Extension::~Extension()
 }
 
 /**
- *  Add a function to the library
- *  @param  function    Function object
- *  @return Function
- */
-Function *Extension::add(Function *function)
-{
-    // add the function to the map
-    _functions.insert(std::unique_ptr<Function>(function));
-    
-    // the result is a pair with an iterator
-    return function;
-}
-
-/**
- *  Add a native function directly to the extension
- *  @param  name        Name of the function
- *  @param  function    The function to add
- *  @return Function    The added function
- */
-Function *Extension::add(const char *name, native_callback_0 function, const std::initializer_list<Argument> &arguments) { return add(new NativeFunction(name, function, arguments)); }
-Function *Extension::add(const char *name, native_callback_1 function, const std::initializer_list<Argument> &arguments) { return add(new NativeFunction(name, function, arguments)); }
-Function *Extension::add(const char *name, native_callback_2 function, const std::initializer_list<Argument> &arguments) { return add(new NativeFunction(name, function, arguments)); }
-Function *Extension::add(const char *name, native_callback_3 function, const std::initializer_list<Argument> &arguments) { return add(new NativeFunction(name, function, arguments)); }
-
-/**
  *  Retrieve the module entry
  *  @return zend_module_entry
  */
@@ -249,51 +251,23 @@ zend_module_entry *Extension::module()
     if (_entry->functions || _functions.size() == 0) return _entry;
 
     // allocate memory for the functions
-    zend_function_entry *functions = new zend_function_entry[_functions.size() + 1];
+    zend_function_entry *entries = new zend_function_entry[functions() + 1];
 
-    // keep iterator counter
-    int i = 0;
-
-    // loop through the functions
-    for (auto it = begin(_functions); it != _functions.end(); it++)
-    {
-        // retrieve entry
-        zend_function_entry *entry = &functions[i++];
-
-        // let the function fill the entry
-        (*it)->fill(entry);
-    }
+    // initialize the entries
+    int count = Namespace::initialize("", entries);
 
     // last entry should be set to all zeros
-    zend_function_entry *last = &functions[i];
+    zend_function_entry *last = &entries[count];
 
     // all should be set to zero
     memset(last, 0, sizeof(zend_function_entry));
 
     // store functions in entry object
-    _entry->functions = functions;
+    _entry->functions = entries;
 
     // return the entry
     return _entry;
 }
-
-/**
- *  Initialize the extension
- *  @return bool
- */
-bool Extension::initialize()
-{
-    // loop through the classes
-    for (auto iter = _classes.begin(); iter != _classes.end(); iter++)
-    {
-        // initialize the class
-        (*iter)->initialize();
-    }
-    
-    // done
-    return true;
-}
-
 
 /**
  *  End of namespace
